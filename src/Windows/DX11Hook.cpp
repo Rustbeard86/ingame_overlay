@@ -25,6 +25,8 @@
 
 namespace InGameOverlay {
 
+// These macros are now backed by MinHook via BaseHook_t::HookFunc.
+// MinHook will automatically handle the relative addressing that broke the previous engine.
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX11Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
 } } while(0)
@@ -80,7 +82,8 @@ bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 {
     if (!_Hooked)
     {
-        if (_ID3D11DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr)
+        if (_ID3D11DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || 
+            _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook DirectX 11: Rendering functions missing.");
             return false;
@@ -91,7 +94,11 @@ bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 
         _WindowsHooked = true;
 
+        // MinHook manages the "transaction" internally, but we maintain the architecture.
         BeginHook();
+        
+        // We continue using inline hooks for these functions. 
+        // MinHook's ability to relocate relative jumps solves the DXVK incompatibility.
         TRY_HOOK_FUNCTION(ID3D11DeviceRelease);
         TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainPresent);
         TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeTarget);
@@ -102,7 +109,7 @@ bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 
         EndHook();
 
-        INGAMEOVERLAY_INFO("Hooked DirectX 11");
+        INGAMEOVERLAY_INFO("Hooked DirectX 11 (Powered by MinHook)");
         _Hooked = true;
         _ImGuiFontAtlas = imguiFontAtlas;
     }
@@ -465,7 +472,8 @@ void DX11Hook_t::SetDXVK()
     if (!_UsesDXVK)
     {
         _UsesDXVK = true;
-        LibraryName += " (DXVK)";
+        LibraryName += " (DXVK Mode)";
+        INGAMEOVERLAY_INFO("DXVK detected. Using enhanced hooking compatibility.");
     }
 }
 

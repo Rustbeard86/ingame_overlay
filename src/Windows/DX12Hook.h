@@ -23,6 +23,8 @@
 
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <string>
+#include <array>
 
 namespace InGameOverlay {
 
@@ -127,8 +129,6 @@ private:
     bool _WindowsHooked;
     uint32_t _DeviceReleasing;
 
-    int _CommandQueueOffsetRetries;
-    size_t _CommandQueueOffset;
     ID3D12CommandQueue* _CommandQueue;
     ID3D12Device* _Device;
     ULONG _HookDeviceRefCount;

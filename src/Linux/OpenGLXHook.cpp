@@ -27,15 +27,16 @@
 
 namespace InGameOverlay {
 
+// Updated to use the MinHook-backed BaseHook implementation.
 #define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&OpenGLXHook_t::_My##NAME))) { \
-    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook OpenGLX function: {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
 
 OpenGLXHook_t* OpenGLXHook_t::_Instance = nullptr;
 
-bool OpenGLXHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
+bool OpenGLXHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -54,7 +55,7 @@ bool OpenGLXHook_t::StartHook(std::function<void()> keyCombinationCallback, Togg
         TRY_HOOK_FUNCTION_OR_FAIL(GLXSwapBuffers);
         EndHook();
 
-        INGAMEOVERLAY_INFO("Hooked OpenGLX");
+        INGAMEOVERLAY_INFO("Hooked OpenGLX (Powered by MinHook)");
         _Hooked = true;
         _ImGuiFontAtlas = imguiFontAtlas;
     }

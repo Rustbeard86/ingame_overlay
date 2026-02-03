@@ -157,6 +157,9 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
 
         EndHook();
 
+        _GetClipCursor(&_SavedClipCursor);
+        _GetCursorPos(&_SavedCursorPos);
+
         _Hooked = true;
     }
     return true;
@@ -164,6 +167,9 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
 
 void WindowsHook_t::HideAppInputs(bool hide)
 {
+    if (_ApplicationInputsHidden == hide)
+        return;
+
     _ApplicationInputsHidden = hide;
     if (hide)
     {

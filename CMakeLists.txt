@@ -191,13 +191,16 @@ if(NOT ${INGAMEOVERLAY_USE_SYSTEM_LIBRARIES})
     add_subdirectory(deps/spdlog EXCLUDE_FROM_ALL)
   endif()
   add_subdirectory(deps/System EXCLUDE_FROM_ALL)
-  add_subdirectory(deps/mini_detour EXCLUDE_FROM_ALL)
+  # 2. Add the MinHook dependency
+  add_subdirectory(deps/minhook EXCLUDE_FROM_ALL)
 else()
   if(${INGAMEOVERLAY_USE_SPDLOG})
     find_package(spdlog CONFIG REQUIRED)
   endif()
-  find_package(MiniDetour CONFIG REQUIRED)
+  # find_package(MiniDetour CONFIG REQUIRED) # REMOVED
   find_package(System CONFIG REQUIRED)
+  # MinHook should be handled via add_subdirectory in both cases or found via find_package if available.
+  # For now, we follow the user's lead with add_subdirectory.
 endif()
 
 add_library(ingame_overlay
@@ -220,7 +223,7 @@ target_link_libraries(ingame_overlay
   PUBLIC
 
   Nemirtingas::System
-  Nemirtingas::MiniDetour
+  minhook # Swapped mini_detour for minhook
 
   $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:spdlog::spdlog_header_only>
 
@@ -241,6 +244,7 @@ target_include_directories(ingame_overlay
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/ImGui>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/VulkanSDK/include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/minhook/include> # Add MinHook headers
 
   $<INSTALL_INTERFACE:include>
 )

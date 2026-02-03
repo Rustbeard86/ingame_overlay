@@ -27,8 +27,9 @@
 
 namespace InGameOverlay {
 
+// Updated to use the MinHook-backed BaseHook implementation
 #define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&VulkanHook_t::_My##NAME))) { \
-    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook Vulkan function: {}", #NAME);\
     return false;\
 } } while(0)
 
@@ -75,22 +76,22 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
 {
     if (!_Hooked)
     {
-        if (_VkAcquireNextImageKHR == nullptr || _VkQueuePresentKHR == nullptr || _VkCreateSwapchainKHR == nullptr || _VkDestroyDevice  == nullptr)
+        if (_VkAcquireNextImageKHR == nullptr || _VkQueuePresentKHR == nullptr || 
+            _VkCreateSwapchainKHR == nullptr || _VkDestroyDevice == nullptr)
         {
-            INGAMEOVERLAY_WARN("Failed to hook Vulkan: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook Vulkan: Essential function pointers are null.");
             return false;
         }
-
-        if (!_CreateVulkanInstance())
-            return false;
 
         if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
 
+        // MinHook manages the relocation of relative instructions automatically.
         BeginHook();
         TRY_HOOK_FUNCTION_OR_FAIL(VkAcquireNextImageKHR);
+        
         if (_VkAcquireNextImage2KHR != nullptr)
             TRY_HOOK_FUNCTION_OR_FAIL(VkAcquireNextImage2KHR);
 
@@ -99,7 +100,7 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
         TRY_HOOK_FUNCTION_OR_FAIL(VkDestroyDevice);
         EndHook();
 
-        INGAMEOVERLAY_INFO("Hooked Vulkan");
+        INGAMEOVERLAY_INFO("Hooked Vulkan (Powered by MinHook)");
         _Hooked = true;
         _ImGuiFontAtlas = imguiFontAtlas;
     }
@@ -385,7 +386,25 @@ PFN_vkVoidFunction VulkanHook_t::_LoadVulkanFunction(const char* functionName, v
 
 PFN_vkVoidFunction VulkanHook_t::_LoadVulkanFunction(const char* functionName)
 {
-    return _vkGetInstanceProcAddr(_VulkanInstance, functionName);
+    PFN_vkVoidFunction ptr = nullptr;
+    if (_VulkanDevice != nullptr && _vkGetDeviceProcAddr != nullptr)
+    {
+        ptr = _vkGetDeviceProcAddr(_VulkanDevice, functionName);
+        if (ptr != nullptr)
+            return ptr;
+    }
+
+    if (_VulkanInstance != nullptr && _vkGetInstanceProcAddr != nullptr)
+    {
+        ptr = _vkGetInstanceProcAddr(_VulkanInstance, functionName);
+        if (ptr != nullptr)
+            return ptr;
+    }
+
+    if (_vkGetInstanceProcAddr != nullptr)
+        return _vkGetInstanceProcAddr(nullptr, functionName);
+
+    return (PFN_vkVoidFunction)_VulkanLoader(functionName);
 }
 
 void VulkanHook_t::_FreeVulkanRessources()
@@ -404,7 +423,7 @@ bool VulkanHook_t::_CreateVulkanInstance()
 {
     _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)_VulkanLoader("vkGetInstanceProcAddr");
     _vkCreateInstance = (decltype(::vkCreateInstance)*)_VulkanLoader("vkCreateInstance");
-    _vkDestroyInstance = (decltype(::vkDestroyInstance)*)_VulkanLoader("_vkDestroyInstance");
+    _vkDestroyInstance = (decltype(::vkDestroyInstance)*)_VulkanLoader("vkDestroyInstance");
 
     // Create Vulkan Instance
     {
@@ -786,13 +805,55 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
         WindowsHook_t::Inst()->SetInitialWindowSize(_MainWindow);
 
+        if (_VulkanInstance == VK_NULL_HANDLE)
+        {
+            if (!_CreateVulkanInstance())
+            {
+                INGAMEOVERLAY_ERROR("Failed to create shadow Vulkan instance for overlay.");
+                return;
+            }
+            // Re-load all functions now that we have an instance and physical device
+            _InitializeVulkanFunctions();
+        }
+
         if (_VulkanQueue == nullptr)
-            _vkGetDeviceQueue(_VulkanDevice, _VulkanQueueFamily, 0, &_VulkanQueue);
+            _VulkanQueue = queue;
+
+        if (_VulkanQueueFamily == uint32_t(-1))
+        {
+            // Recover queue family by comparing handles
+            uint32_t count = 0;
+            _vkGetPhysicalDeviceQueueFamilyProperties(_VulkanPhysicalDevice, &count, nullptr);
+            std::vector<VkQueueFamilyProperties> families(count);
+            _vkGetPhysicalDeviceQueueFamilyProperties(_VulkanPhysicalDevice, &count, families.data());
+
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                for (uint32_t j = 0; j < families[i].queueCount; ++j)
+                {
+                    VkQueue testQueue = VK_NULL_HANDLE;
+                    _vkGetDeviceQueue(_VulkanDevice, i, j, &testQueue);
+                    if (testQueue == _VulkanQueue)
+                    {
+                        _VulkanQueueFamily = i;
+                        break;
+                    }
+                }
+                if (_VulkanQueueFamily != uint32_t(-1))
+                    break;
+            }
+        }
+
+        if (_VulkanQueueFamily == uint32_t(-1))
+        {
+            INGAMEOVERLAY_ERROR("Failed to recover Vulkan queue family.");
+            return;
+        }
 
         if (!_CreateRenderPass())
             return;
 
-        if (_DescriptorsPools.empty() && _AllocDescriptorPool())
+        if (_DescriptorsPools.empty() && !_AllocDescriptorPool())
             return;
 
         if (!_CreateImageDevices())
@@ -1114,14 +1175,14 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImage2KHR(VkDevice 
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
-    INGAMEOVERLAY_INFO("vkQueuePresentKHR");
     auto inst = VulkanHook_t::Inst();
 
-    // Send VK_SUBOPTIMAL_KHR and see if the game recreates its swapchain, so we can get the rendering color space :p
+    // Trigger a single 'Suboptimal' return to force the game to rebuild its 
+    // swapchain with the overlay integrated.
     if (!inst->_SentOutOfDate)
     {
         inst->_SentOutOfDate = true;
-        return VkResult::VK_SUBOPTIMAL_KHR;
+        return VK_SUBOPTIMAL_KHR;
     }
 
     inst->_PrepareForOverlay(queue, pPresentInfo);
@@ -1139,6 +1200,10 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice de
         createRenderTargets = !inst->_Frames.empty();
         inst->_ResetRenderState(OverlayHookState::Reset);
     }
+    
+    // CRITICAL: Set the 'SentOutOfDate' flag to true whenever a new swapchain is created.
+    // This stops the infinite recreation loop and allows the overlay to resume 
+    // rendering after the game has responded to the VK_SUBOPTIMAL_KHR signal.
     inst->_SentOutOfDate = true;
     inst->_VulkanTargetFormat = pCreateInfo->imageFormat;
     auto res = inst->_VkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
@@ -1297,6 +1362,81 @@ void VulkanHook_t::LoadFunctions(
     _VkQueuePresentKHR = vkQueuePresentKHR;
     _VkCreateSwapchainKHR = vkCreateSwapchainKHR;
     _VkDestroyDevice = vkDestroyDevice;
+
+    _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)_VulkanLoader("vkGetInstanceProcAddr");
+    _vkGetDeviceProcAddr = (decltype(::vkGetDeviceProcAddr)*)_VulkanLoader("vkGetDeviceProcAddr");
+}
+
+bool VulkanHook_t::_InitializeVulkanFunctions()
+{
+    if (_vkGetInstanceProcAddr == nullptr)
+        return false;
+
+#define LOAD_VULKAN_FUNCTION(NAME) if (_##NAME == nullptr) _##NAME = (decltype(_##NAME))_LoadVulkanFunction(#NAME)
+    LOAD_VULKAN_FUNCTION(vkCreateInstance);
+    LOAD_VULKAN_FUNCTION(vkDestroyInstance);
+    LOAD_VULKAN_FUNCTION(vkDeviceWaitIdle);
+
+    LOAD_VULKAN_FUNCTION(vkQueueSubmit);
+    LOAD_VULKAN_FUNCTION(vkQueueWaitIdle);
+    LOAD_VULKAN_FUNCTION(vkGetDeviceQueue);
+    LOAD_VULKAN_FUNCTION(vkCreateRenderPass);
+    LOAD_VULKAN_FUNCTION(vkCmdBeginRenderPass);
+    LOAD_VULKAN_FUNCTION(vkCmdEndRenderPass);
+    LOAD_VULKAN_FUNCTION(vkDestroyRenderPass);
+    LOAD_VULKAN_FUNCTION(vkCmdCopyImage);
+    LOAD_VULKAN_FUNCTION(vkGetImageSubresourceLayout);
+    LOAD_VULKAN_FUNCTION(vkCreateSemaphore);
+    LOAD_VULKAN_FUNCTION(vkDestroySemaphore);
+    LOAD_VULKAN_FUNCTION(vkCreateBuffer);
+    LOAD_VULKAN_FUNCTION(vkDestroyBuffer);
+    LOAD_VULKAN_FUNCTION(vkMapMemory);
+    LOAD_VULKAN_FUNCTION(vkUnmapMemory);
+    LOAD_VULKAN_FUNCTION(vkFlushMappedMemoryRanges);
+    LOAD_VULKAN_FUNCTION(vkBindBufferMemory);
+    LOAD_VULKAN_FUNCTION(vkCmdCopyBufferToImage);
+    LOAD_VULKAN_FUNCTION(vkBindImageMemory);
+    LOAD_VULKAN_FUNCTION(vkCreateCommandPool);
+    LOAD_VULKAN_FUNCTION(vkResetCommandPool);
+    LOAD_VULKAN_FUNCTION(vkDestroyCommandPool);
+    LOAD_VULKAN_FUNCTION(vkCreateImageView);
+    LOAD_VULKAN_FUNCTION(vkDestroyImageView);
+    LOAD_VULKAN_FUNCTION(vkCreateSampler);
+    LOAD_VULKAN_FUNCTION(vkDestroySampler);
+    LOAD_VULKAN_FUNCTION(vkCreateImage);
+    LOAD_VULKAN_FUNCTION(vkDestroyImage);
+    LOAD_VULKAN_FUNCTION(vkAllocateMemory);
+    LOAD_VULKAN_FUNCTION(vkFreeMemory);
+    LOAD_VULKAN_FUNCTION(vkCmdPipelineBarrier);
+    LOAD_VULKAN_FUNCTION(vkAllocateCommandBuffers);
+    LOAD_VULKAN_FUNCTION(vkBeginCommandBuffer);
+    LOAD_VULKAN_FUNCTION(vkResetCommandBuffer);
+    LOAD_VULKAN_FUNCTION(vkEndCommandBuffer);
+    LOAD_VULKAN_FUNCTION(vkFreeCommandBuffers);
+    LOAD_VULKAN_FUNCTION(vkCreateFramebuffer);
+    LOAD_VULKAN_FUNCTION(vkDestroyFramebuffer);
+    LOAD_VULKAN_FUNCTION(vkCreateFence);
+    LOAD_VULKAN_FUNCTION(vkWaitForFences);
+    LOAD_VULKAN_FUNCTION(vkResetFences);
+    LOAD_VULKAN_FUNCTION(vkDestroyFence);
+    LOAD_VULKAN_FUNCTION(vkCreateDescriptorPool);
+    LOAD_VULKAN_FUNCTION(vkDestroyDescriptorPool);
+    LOAD_VULKAN_FUNCTION(vkCreateDescriptorSetLayout);
+    LOAD_VULKAN_FUNCTION(vkDestroyDescriptorSetLayout);
+    LOAD_VULKAN_FUNCTION(vkAllocateDescriptorSets);
+    LOAD_VULKAN_FUNCTION(vkUpdateDescriptorSets);
+    LOAD_VULKAN_FUNCTION(vkFreeDescriptorSets);
+    LOAD_VULKAN_FUNCTION(vkGetBufferMemoryRequirements);
+    LOAD_VULKAN_FUNCTION(vkGetImageMemoryRequirements);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceMemoryProperties);
+    LOAD_VULKAN_FUNCTION(vkEnumerateDeviceExtensionProperties);
+    LOAD_VULKAN_FUNCTION(vkEnumeratePhysicalDevices);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceSurfaceFormatsKHR);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceProperties);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
+#undef LOAD_VULKAN_FUNCTION
+
+    return true;
 }
 
 std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

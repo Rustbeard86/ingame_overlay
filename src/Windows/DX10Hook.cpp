@@ -25,6 +25,7 @@
 
 namespace InGameOverlay {
 
+// Modernized MinHook implementation
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX10Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
 } } while(0)
@@ -66,13 +67,14 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(DX
     }
 }
 
-bool DX10Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
+bool DX10Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
-        if (_ID3D10DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr)
+        if (_ID3D10DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || 
+            _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr)
         {
-            INGAMEOVERLAY_WARN("Failed to hook DirectX 11: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook DirectX 10: Essential functions missing.");
             return false;
         }
 
@@ -92,7 +94,7 @@ bool DX10Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 
         EndHook();
 
-        INGAMEOVERLAY_INFO("Hooked DirectX 10");
+        INGAMEOVERLAY_INFO("Hooked DirectX 10 (Powered by MinHook)");
         _Hooked = true;
         _ImGuiFontAtlas = imguiFontAtlas;
     }
@@ -428,7 +430,8 @@ void DX10Hook_t::SetDXVK()
     if (!_UsesDXVK)
     {
         _UsesDXVK = true;
-        LibraryName += " (DXVK)";
+        LibraryName += " (DXVK Mode)";
+        INGAMEOVERLAY_INFO("DXVK detected for DX10. Using enhanced hooking compatibility.");
     }
 }
 

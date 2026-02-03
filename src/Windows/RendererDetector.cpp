@@ -27,7 +27,6 @@
 #include <System/System.h>
 #include <System/Library.h>
 #include <System/ScopedLock.hpp>
-#include <mini_detour/mini_detour.h>
 
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
@@ -59,8 +58,9 @@
     #undef GetSystemDirectory
 #endif
 
-#define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
-    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME); } } while(0)
+// mini_detour is no longer used; all hooking is now handled 
+// via the MinHook-powered BaseHook_t class.
+// #include <mini_detour.h> 
 
 namespace InGameOverlay {
 
@@ -71,6 +71,8 @@ static constexpr const char DX11_DLL_NAME[] = "d3d11.dll";
 static constexpr const char DX12_DLL_NAME[] = "d3d12.dll";
 static constexpr const char OPENGL_DLL_NAME[] = "opengl32.dll";
 static constexpr const char VULKAN_DLL_NAME[] = "vulkan-1.dll";
+
+#define TRY_HOOK_FUNCTION(TARGET, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)TARGET, (void*)HOOK))) { INGAMEOVERLAY_ERROR("Failed to hook " #TARGET); } } while(0)
 
 struct DirectX9Driver_t
 {

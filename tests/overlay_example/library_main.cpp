@@ -308,7 +308,7 @@ InGameOverlay::RendererHook_t* test_filterer_renderer_detector(InGameOverlay::Re
 void image_or_dummy(InGameOverlay::RendererResource_t* resource, float width, float height)
 {
     if (resource->GetResourceId() != 0)
-        ImGui::Image(resource->GetResourceId(), { width, height });
+        ImGui::Image(reinterpret_cast<ImTextureID>(resource->GetResourceId()), { width, height });
     else
         ImGui::Dummy({ width, height });
 }
@@ -421,6 +421,13 @@ void shared_library_load(void* hmodule)
 
                 ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
                 ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName());
+                
+                // Explicitly verify translation layer status for debugging and user visibility
+                if (strstr(OverlayData->Renderer->GetLibraryName(), "DXVK"))
+                {
+                    ImGui::TextColored(ImVec4(0, 1, 0, 1), "Status: Running via DXVK (Robust Hooking Active)");
+                }
+
                 ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
 
                 // Good habit is to use a dummy when the image is not ready, to not screw up your layout

@@ -20,40 +20,36 @@
 #pragma once
 
 #include <vector>
-#include <array>
 #include <utility>
-#include <mini_detour/mini_detour.h>
+#include <MinHook.h>
+
+namespace InGameOverlay {
 
 class BaseHook_t
 {
-protected:
-    std::vector<mini_detour::hook> _HookedFunctions;
-
-    BaseHook_t(const BaseHook_t&) = delete;
-    BaseHook_t(BaseHook_t&&) = delete;
-    BaseHook_t& operator =(const BaseHook_t&) = delete;
-    BaseHook_t& operator =(BaseHook_t&&) = delete;
-
 public:
     BaseHook_t();
     virtual ~BaseHook_t();
 
     void BeginHook();
     void EndHook();
-    void UnhookAll();
 
+    // Standard inline hook
     bool HookFunc(std::pair<void**, void*> hook);
 
-    template<typename T>
-    void HookFuncs(std::pair<T*, T> funcs)
-    {
-        HookFunc(funcs);
-    }
+    // New: VTable swap hook for better stability with translation layers like DXVK
+    bool HookVTable(void* pInterface, int index, void* pDetour, void** ppOriginal);
 
-    template<typename T, typename ...Args>
-    void HookFuncs(std::pair<T*, T> funcs, Args... args)
-    {
-        HookFunc(funcs);
-        HookFuncs(args...);
-    }
+    void UnhookAll();
+
+protected:
+    // MinHook manages hooks via target addresses, so we store the targets here
+    std::vector<void*> _HookedFunctions;
+
+    BaseHook_t(const BaseHook_t&) = delete;
+    BaseHook_t(BaseHook_t&&) = delete;
+    BaseHook_t& operator =(const BaseHook_t&) = delete;
+    BaseHook_t& operator =(BaseHook_t&&) = delete;
 };
+
+} // namespace InGameOverlay

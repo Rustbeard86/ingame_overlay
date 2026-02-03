@@ -20,6 +20,7 @@
 #pragma once
 
 #include "../RendererHookInternal.h"
+#include <string>
 
 #include  "SimpleWindowsGamingInput.h"
 

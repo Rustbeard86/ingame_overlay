@@ -25,6 +25,7 @@
 
 namespace InGameOverlay {
 
+// Now using the modernized MinHook implementation from BaseHook_t
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX12Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
 } } while(0)
@@ -85,7 +86,9 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 {
     if (!_Hooked)
     {
-        if (_ID3D12DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || _ID3D12CommandQueueExecuteCommandLists == nullptr)
+        if (_ID3D12DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || 
+            _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || 
+            _ID3D12CommandQueueExecuteCommandLists == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook DirectX 12: Rendering functions missing.");
             return false;
@@ -111,7 +114,7 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 
         EndHook();
 
-        INGAMEOVERLAY_INFO("Hooked DirectX 12");
+        INGAMEOVERLAY_INFO("Hooked DirectX 12 (Powered by MinHook)");
         _Hooked = true;
         _ImGuiFontAtlas = imguiFontAtlas;
     }
@@ -194,43 +197,15 @@ void DX12Hook_t::_ReleaseShaderRessourceView(uint32_t id)
 
 ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain)
 {
-    constexpr int MaxRetries = 10;
-    ID3D12CommandQueue* pCommandQueue = nullptr;
-    ID3D12CommandQueue* pHookedCommandQueue = _CommandQueue;
-
-    if (pHookedCommandQueue == nullptr)
+    // Brute-force offset hunting is removed as it causes instability with modern drivers/DXVK.
+    // We now rely on the CommandQueue captured via the ExecuteCommandLists hook.
+    if (_CommandQueue == nullptr)
+    {
+        INGAMEOVERLAY_TRACE("Waiting for ID3D12CommandQueue::ExecuteCommandLists to capture queue...");
         return nullptr;
-
-    if (_CommandQueueOffset == 0)
-    {
-        for (size_t i = 0; i < 1024; ++i)
-        {
-            if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + i) == pHookedCommandQueue)
-            {
-                INGAMEOVERLAY_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
-                _CommandQueueOffset = i;
-                break;
-            }
-        }
     }
 
-    if (_CommandQueueOffset != 0)
-    {
-        pCommandQueue = *reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + _CommandQueueOffset);
-    }
-    else if (_CommandQueueOffsetRetries <= MaxRetries)
-    {
-        if (++_CommandQueueOffsetRetries >= MaxRetries)
-        {
-            INGAMEOVERLAY_INFO("Failed to find IDXGISwapChain::ppCommandQueue, fallback to ID3D12CommandQueue::ExecuteCommandLists");
-        }
-    }
-    else
-    {
-        pCommandQueue = pHookedCommandQueue;
-    }
-
-    return pCommandQueue;
+    return _CommandQueue;
 }
 
 void DX12Hook_t::_UpdateHookDeviceRefCount()
@@ -358,8 +333,8 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             _ShaderResourceViewHeaps.clear();
             _ShaderResourceViewHeapDescriptors.clear();
             SafeRelease(_Device);
-            _CommandQueueOffset = 0;
-            _CommandQueueOffsetRetries = 0;
+            
+            // Reset captured state
             _CommandQueue = nullptr;
             break;
 
@@ -734,8 +709,9 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwap
 
 void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists)
 {
-    INGAMEOVERLAY_INFO("ID3D12CommandQueue::ExecuteCommandLists");
     auto inst = DX12Hook_t::Inst();
+    
+    // Capture the most recent Direct Command Queue to use for overlay rendering
     if (_this->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
         inst->_CommandQueue = _this;
 
@@ -746,8 +722,6 @@ DX12Hook_t::DX12Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
     _DeviceReleasing(0),
-    _CommandQueueOffsetRetries(0),
-    _CommandQueueOffset(0),
     _CommandQueue(nullptr),
     _Device(nullptr),
     _HookDeviceRefCount(0),
@@ -970,7 +944,7 @@ std::weak_ptr<uint64_t> DX12Hook_t::CreateImageResource(const void* image_data, 
     };
     
     Texture_t* pTextureData = new Texture_t;
-    pTextureData->GpuHandle = shaderRessourceView.GpuHandle.ptr;
+    pTextureData->GpuHandle = reinterpret_cast<ImTextureID>(shaderRessourceView.GpuHandle.ptr);
     pTextureData->pTexture = pTexture;
     pTextureData->Id = shaderRessourceView.Id;
     

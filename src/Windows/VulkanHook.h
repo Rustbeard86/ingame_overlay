@@ -24,6 +24,7 @@
 #include "../InternalIncludes.h"
 
 #include <vulkan/vulkan.h>
+#include <string>
 
 namespace InGameOverlay {
 
@@ -137,6 +138,8 @@ private:
 
     uint32_t _GetVulkanMemoryType(VkMemoryPropertyFlags properties, uint32_t type_bits);
     bool _DoesQueueSupportGraphic(VkQueue queue);
+
+    bool _InitializeVulkanFunctions();
 
     // Hook to render functions
     decltype(::vkAcquireNextImageKHR) * _VkAcquireNextImageKHR;

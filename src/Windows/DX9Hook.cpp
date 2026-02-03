@@ -25,12 +25,9 @@
 
 namespace InGameOverlay {
 
-#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX9Hook_t::_My##NAME))) { \
-    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
-} } while(0)
-
+// Updated to use the MinHook-backed BaseHook implementation
 #define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX9Hook_t::_My##NAME))) { \
-    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook DX9 function: {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -63,37 +60,36 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(D3
     }
 }
 
-bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
+bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
-        if (_IDirect3DDevice9Release == nullptr || _IDirect3DDevice9Reset == nullptr || _IDirect3DDevice9Present == nullptr)
+        if (_IDirect3DDevice9Release == nullptr || _IDirect3DDevice9Present == nullptr || _IDirect3DDevice9Reset == nullptr)
         {
-            INGAMEOVERLAY_WARN("Failed to hook DirectX 9: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook DirectX 9: Essential functions missing.");
             return false;
         }
-        
+
         if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
 
         BeginHook();
-        TRY_HOOK_FUNCTION(IDirect3DDevice9Release);
-        TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9Reset);
+        // Standard inline hooks; MinHook handles the instruction relocation
+        TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9Release);
         TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9Present);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9Reset);
+
         if (_IDirect3DDevice9ExPresentEx != nullptr)
             TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9ExPresentEx);
 
         if (_IDirect3DDevice9ExResetEx != nullptr)
             TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9ExResetEx);
 
-        if (_IDirect3DSwapChain9SwapChainPresent != nullptr)
-            TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DSwapChain9SwapChainPresent);
-
         EndHook();
 
-        INGAMEOVERLAY_INFO("Hooked DirectX 9");
+        INGAMEOVERLAY_INFO("Hooked DirectX 9 (Powered by MinHook)");
         _Hooked = true;
         _ImGuiFontAtlas = imguiFontAtlas;
     }
@@ -441,7 +437,8 @@ void DX9Hook_t::SetDXVK()
     if (!_UsesDXVK)
     {
         _UsesDXVK = true;
-        LibraryName += " (DXVK)";
+        LibraryName += " (DXVK Mode)";
+        INGAMEOVERLAY_INFO("DXVK detected for DX9. Using enhanced hooking compatibility.");
     }
 }
 

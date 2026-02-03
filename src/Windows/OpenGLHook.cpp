@@ -27,8 +27,9 @@
 
 namespace InGameOverlay {
 
+// Modernized MinHook implementation
 #define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&OpenGLHook_t::_My##NAME))) { \
-    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook OpenGL function: {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -41,7 +42,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
     {
         if (_WGLSwapBuffers == nullptr)
         {
-            INGAMEOVERLAY_WARN("Failed to hook OpenGL: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook OpenGL: wglSwapBuffers missing.");
             return false;
         }
 
@@ -54,7 +55,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
         TRY_HOOK_FUNCTION_OR_FAIL(WGLSwapBuffers);
         EndHook();
 
-        INGAMEOVERLAY_INFO("Hooked OpenGL");
+        INGAMEOVERLAY_INFO("Hooked OpenGL (Powered by MinHook)");
         _Hooked = true;
         _ImGuiFontAtlas = imguiFontAtlas;
     }

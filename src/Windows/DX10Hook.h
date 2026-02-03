@@ -23,6 +23,7 @@
 
 #include <d3d10.h>
 #include <dxgi1_2.h>
+#include <string>
 
 namespace InGameOverlay {
 

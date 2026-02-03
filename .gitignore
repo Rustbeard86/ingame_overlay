@@ -1,3 +1,48 @@
-/deps/ImGui
+# Build and Output
+/OUT/
+/build/
+/bin/
+/lib/
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.dylib
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+compile_commands.json
+*.cmake
+
+# IDEs (Visual Studio, VS Code, JetBrains)
+.vs/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Dependencies and fragments
 /deps/spdlog
-/OUT
+# Note: Submodules (ImGui, System, minhook) are managed via .gitmodules 
+# and do not generally need to be ignored here unless they are loose files.

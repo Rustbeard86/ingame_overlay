@@ -18,41 +18,94 @@
  */
 
 #include "BaseHook.h"
-
 #include <algorithm>
-#include <mini_detour/mini_detour.h>
+#include <Windows.h> // Required for VirtualProtect
+
+namespace InGameOverlay {
 
 BaseHook_t::BaseHook_t()
-{}
+{
+    // Initialize MinHook once
+    MH_Initialize();
+}
 
 BaseHook_t::~BaseHook_t()
 {
     UnhookAll();
+    // Cleanup MinHook
+    MH_Uninitialize();
 }
 
 void BaseHook_t::BeginHook()
 {
-    //mini_detour::transaction_begin();
+    // MinHook doesn't strictly require transaction blocks like Detours, 
+    // but we keep these for architectural consistency.
 }
 
 void BaseHook_t::EndHook()
 {
-    //mini_detour::transaction_commit();
 }
 
 bool BaseHook_t::HookFunc(std::pair<void**, void*> hook)
 {
-    mini_detour::hook md_hook;
-    void* res = md_hook.hook_func(*hook.first, hook.second);
-    if (res == nullptr)
+    void* pTarget = *hook.first;
+    void* pDetour = hook.second;
+    void* pOriginal = nullptr;
+
+    // Create the hook
+    if (MH_CreateHook(pTarget, pDetour, &pOriginal) != MH_OK)
         return false;
 
-    _HookedFunctions.emplace_back(std::move(md_hook));
-    *hook.first = res;
+    // Enable the hook
+    if (MH_EnableHook(pTarget) != MH_OK)
+        return false;
+
+    // Store the original function pointer back into the caller's variable
+    // so they can call the original function from their detour.
+    *hook.first = pOriginal; 
+    
+    // Keep track of the target for unhooking later
+    _HookedFunctions.push_back(pTarget); 
+    return true;
+}
+
+bool BaseHook_t::HookVTable(void* pInterface, int index, void* pDetour, void** ppOriginal)
+{
+    if (!pInterface) return false;
+
+    // The VTable is the first pointer in the object
+    void** vtable = *(void***)pInterface;
+    void* pTarget = vtable[index];
+
+    DWORD oldProtect;
+    // Make the specific VTable entry writable
+    if (!VirtualProtect(&vtable[index], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect))
+        return false;
+
+    // Store the original address
+    if (ppOriginal)
+        *ppOriginal = vtable[index];
+
+    // Swap the pointer
+    vtable[index] = pDetour;
+
+    // Restore original memory protection
+    VirtualProtect(&vtable[index], sizeof(void*), oldProtect, &oldProtect);
+
+    // Note: VTable hooks aren't managed by MinHook, but we can store them 
+    // if we want to automate reversion in UnhookAll.
     return true;
 }
 
 void BaseHook_t::UnhookAll()
 {
+    // Disable and remove all inline hooks managed by MinHook
+    for (void* pTarget : _HookedFunctions)
+    {
+        MH_DisableHook(pTarget);
+        MH_RemoveHook(pTarget);
+    }
     _HookedFunctions.clear();
 }
+
+} // namespace InGameOverlay

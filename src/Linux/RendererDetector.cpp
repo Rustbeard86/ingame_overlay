@@ -27,7 +27,6 @@
 #include <System/System.h>
 #include <System/Library.h>
 #include <System/ScopedLock.hpp>
-#include <mini_detour/mini_detour.h>
 
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
