@@ -118,6 +118,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Force static runtime (/MT) globally to ensure consistent linkage
+# This prevents CRT conflicts when used as a library in other projects
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
+endif()
+
 option(INGAMEOVERLAY_DYNAMIC_RUNTIME "Link against dynamic runtime (Windows)" OFF)
 option(INGAMEOVERLAY_BUILD_TESTS "Build tests." OFF)
 option(INGAMEOVERLAY_USE_SPDLOG "Enable logs with SPDLOG." OFF)
