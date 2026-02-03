@@ -24,8 +24,11 @@ To build and run the project, you need:
 - **Windows 10/11**
 - **Git**: [Download here](https://git-scm.com/)
 - **CMake** (v3.15+): [Download here](https://cmake.org/) - Ensure it is added to your system PATH.
-- **Visual Studio 2019/2022**: With the "Desktop development with C++" workload installed.
+- **Visual Studio 2019/2022/2026**: With the "Desktop development with C++" workload installed.
 - **PowerShell**: Enabled for script execution (`Set-ExecutionPolicy RemoteSigned` for the current user if needed).
+
+> [!NOTE]
+> By default, this project builds against the **Static Runtime (/MT)** for maximum compatibility when used as an injected library. To switch to the Dynamic Runtime (/MD), use `-DINGAMEOVERLAY_DYNAMIC_RUNTIME=ON` during CMake configuration.
 
 ## Build
 
