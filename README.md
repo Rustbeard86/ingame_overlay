@@ -17,6 +17,16 @@ The primary goal of this fork is to modernize the hooking infrastructure and imp
 - **Windows Stability**: Fixed several system-level issues, including a cursor snap/lock bug on application exit.
 - **Improved Tooling**: Added a unified `build.ps1` script for automated environment setup and project compilation.
 
+## Requirements
+
+To build and run the project, you need:
+
+- **Windows 10/11**
+- **Git**: [Download here](https://git-scm.com/)
+- **CMake** (v3.15+): [Download here](https://cmake.org/) - Ensure it is added to your system PATH.
+- **Visual Studio 2019/2022**: With the "Desktop development with C++" workload installed.
+- **PowerShell**: Enabled for script execution (`Set-ExecutionPolicy RemoteSigned` for the current user if needed).
+
 ## Build
 
 To build the project on Windows, simply run:
