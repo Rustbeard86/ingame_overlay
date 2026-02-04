@@ -3,7 +3,7 @@
     url = https://github.com/Nemirtingas/ImGui.git
 [submodule "deps/System"]
     path = deps/System
-    url = https://github.com/Nemirtingas/System.git
+    url = https://github.com/Rustbeard86/System.git
 [submodule "deps/minhook"]
 	path = deps/minhook
 	url = https://github.com/TsudaKageyu/minhook.git
