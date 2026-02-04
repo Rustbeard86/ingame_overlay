@@ -1,6 +1,6 @@
 [submodule "deps/ImGui"]
     path = deps/ImGui
-    url = https://github.com/Nemirtingas/ImGui.git
+    url = https://github.com/Rustbeard86/imgui.git
 [submodule "deps/System"]
     path = deps/System
     url = https://github.com/Rustbeard86/System.git
