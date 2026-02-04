@@ -308,7 +308,7 @@ InGameOverlay::RendererHook_t* test_filterer_renderer_detector(InGameOverlay::Re
 void image_or_dummy(InGameOverlay::RendererResource_t* resource, float width, float height)
 {
     if (resource->GetResourceId() != 0)
-        ImGui::Image(reinterpret_cast<ImTextureID>(resource->GetResourceId()), { width, height });
+        ImGui::Image(static_cast<ImTextureID>(resource->GetResourceId()), { width, height });
     else
         ImGui::Dummy({ width, height });
 }
