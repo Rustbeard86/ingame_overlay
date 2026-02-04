@@ -944,7 +944,7 @@ std::weak_ptr<uint64_t> DX12Hook_t::CreateImageResource(const void* image_data, 
     };
     
     Texture_t* pTextureData = new Texture_t;
-    pTextureData->GpuHandle = reinterpret_cast<ImTextureID>(shaderRessourceView.GpuHandle.ptr);
+    pTextureData->GpuHandle = reinterpret_cast<ImTextureID>(static_cast<uint64_t>(shaderRessourceView.GpuHandle.ptr));
     pTextureData->pTexture = pTexture;
     pTextureData->Id = shaderRessourceView.Id;
     
