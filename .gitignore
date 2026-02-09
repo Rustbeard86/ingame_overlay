@@ -1,5 +1,6 @@
 # Build and Output
 /OUT/
+/OUT_*/
 /build/
 /bin/
 /lib/

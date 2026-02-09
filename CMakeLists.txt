@@ -137,14 +137,14 @@ endif()
 
 find_package(Threads REQUIRED)
 
-if(NOT ${IMGUI_USER_CONFIG} STREQUAL "")
-  set(IMGUI_USER_CONFIG_VALUE IMGUI_USER_CONFIG="${IMGUI_USER_CONFIG}")
+if(NOT "${IMGUI_USER_CONFIG}" STREQUAL "")
+  set(IMGUI_USER_CONFIG_VALUE IMGUI_USER_CONFIG=\"${IMGUI_USER_CONFIG}\")
   get_filename_component(IMGUI_USER_CONFIG_NAME_VALUE ${IMGUI_USER_CONFIG} NAME)
-  set(IMGUI_USER_CONFIG_NAME_VALUE IMGUI_USER_CONFIG="${IMGUI_USER_CONFIG_NAME_VALUE}")
+  set(IMGUI_USER_CONFIG_NAME_VALUE IMGUI_USER_CONFIG=\"${IMGUI_USER_CONFIG_NAME_VALUE}\")
 else()
   set(IMGUI_USER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/include/InGameOverlay/ImGuiConfig.h" CACHE FILEPATH "")
-  set(IMGUI_USER_CONFIG_VALUE IMGUI_USER_CONFIG="InGameOverlay/ImGuiConfig.h")
-  set(IMGUI_USER_CONFIG_NAME_VALUE IMGUI_USER_CONFIG="ImGuiConfig.h")
+  set(IMGUI_USER_CONFIG_VALUE IMGUI_USER_CONFIG=\"InGameOverlay/ImGuiConfig.h\")
+  set(IMGUI_USER_CONFIG_NAME_VALUE IMGUI_USER_CONFIG=\"ImGuiConfig.h\")
 endif()
 
 list(APPEND INGAMEOVERLAY_SOURCES
@@ -312,6 +312,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     target_include_directories(dx9_app
       PRIVATE
       deps/ImGui
+      include
     )
 
     target_link_libraries(dx9_app
@@ -349,6 +350,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     target_include_directories(dx10_app
       PRIVATE
       deps/ImGui
+      include
     )
 
     target_link_libraries(dx10_app
@@ -386,6 +388,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     target_include_directories(dx11_app
       PRIVATE
       deps/ImGui
+      include
     )
 
     target_link_libraries(dx11_app
@@ -412,6 +415,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       tests/dx12/main.cpp
       tests/common/imgui_impl_dx12.h
       tests/common/imgui_impl_dx12.cpp
+      include/InGameOverlay/ImGuiConfig.h
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
       deps/ImGui/imgui_draw.cpp
@@ -424,6 +428,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     target_include_directories(dx12_app
       PRIVATE
       deps/ImGui
+      include
     )
 
     target_link_libraries(dx12_app
@@ -461,6 +466,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     target_include_directories(windows_opengl3_app
       PRIVATE
       deps/ImGui
+      include
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
     )
 
@@ -507,6 +513,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       target_include_directories(windows_vulkan_app
         PRIVATE
         deps/ImGui
+        include
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw/include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/include>
       )
