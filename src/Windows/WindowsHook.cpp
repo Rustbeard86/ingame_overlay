@@ -17,21 +17,87 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "WindowsHook.h"
+ #include "WindowsHook.h"
+ #include "../HookDebug.h"
 
-#include <imgui.h>
-#include <backends/imgui_impl_win32.h>
-#include <System/Library.h>
+ #include <imgui.h>
+ #include <backends/imgui_impl_win32.h>
+ #include <System/Library.h>
 
-#include "WindowsGamingInputVTables.h"
+ #include "WindowsGamingInputVTables.h"
 
-extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+ extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-namespace InGameOverlay {
 
-constexpr decltype(WindowsHook_t::DLL_NAME) WindowsHook_t::DLL_NAME;
+ namespace InGameOverlay {
 
-WindowsHook_t* WindowsHook_t::_inst = nullptr;
+ constexpr decltype(WindowsHook_t::DLL_NAME) WindowsHook_t::DLL_NAME;
+
+ WindowsHook_t* WindowsHook_t::_inst = nullptr;
+
+ // Safe memory validation using VirtualQuery (no SEH to avoid exception handling conflicts)
+ static bool IsMemoryReadable(void* address, size_t size = sizeof(void*))
+ {
+     if (address == nullptr)
+         return false;
+    
+     MEMORY_BASIC_INFORMATION mbi;
+     if (VirtualQuery(address, &mbi, sizeof(mbi)) == 0)
+         return false;
+    
+     if (mbi.State != MEM_COMMIT)
+         return false;
+    
+     DWORD readableFlags = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY |
+                           PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    
+     if ((mbi.Protect & readableFlags) == 0 || (mbi.Protect & PAGE_GUARD) != 0)
+         return false;
+    
+     if (size > 1)
+     {
+         void* endAddr = (char*)address + size - 1;
+         if (VirtualQuery(endAddr, &mbi, sizeof(mbi)) == 0)
+             return false;
+         if (mbi.State != MEM_COMMIT)
+             return false;
+         if ((mbi.Protect & readableFlags) == 0 || (mbi.Protect & PAGE_GUARD) != 0)
+             return false;
+     }
+    
+     return true;
+ }
+
+ // Safe VTable entry extraction using VirtualQuery (no SEH)
+ static bool SafeGetVTableEntry(void* pInterface, int index, void** outFuncPtr)
+ {
+     if (pInterface == nullptr || outFuncPtr == nullptr)
+         return false;
+    
+     // Verify interface pointer is readable
+     if (!IsMemoryReadable(pInterface))
+         return false;
+    
+     // Read vtable pointer from interface
+     void** vtable = *(void***)pInterface;
+     if (vtable == nullptr)
+         return false;
+    
+     // Calculate and verify vtable entry address
+     void** vtableEntryAddr = vtable + index;
+     if (!IsMemoryReadable(vtableEntryAddr))
+         return false;
+    
+     void* funcPtr = *vtableEntryAddr;
+     if (funcPtr == nullptr)
+         return false;
+    
+     *outFuncPtr = funcPtr;
+     return true;
+ }
+
+
+
 
 static int ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
@@ -68,6 +134,8 @@ static int ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 
 bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount)
 {
+    HOOK_DEBUG_LOG_THREAD("WindowsHook_t::StartHook - beginning Windows hook initialization");
+    
     if (!_Hooked)
     {
         if (!keyCombinationCallback)
@@ -82,15 +150,19 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
             return false;
         }
 
+        HOOK_DEBUG_LOG_THREAD("Resolving user32.dll handle");
         void* hUser32 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hUser32 == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook Windows: Cannot find {}", DLL_NAME);
             return false;
         }
+        HOOK_DEBUG_VALIDATE_PTR("user32.dll handle", hUser32);
 
         System::Library::Library libUser32;
         LibraryName = System::Library::GetLibraryPath(hUser32);
+        HOOK_DEBUG_LOG_THREAD(("Opening library: " + LibraryName).c_str());
+        
         if (!libUser32.OpenLibrary(LibraryName, false))
         {
             INGAMEOVERLAY_WARN("Failed to hook Windows: Cannot load {}", LibraryName);
@@ -120,19 +192,28 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
             { (void**)&_PeekMessageW     , (void*)&WindowsHook_t::_MyPeekMessageW     , "PeekMessageW"      },
         };
 
+        HOOK_DEBUG_LOG_THREAD("First pass: resolving all symbols");
+        
+        // First pass: resolve all symbols before starting any hooks.
+        // This ensures we abort early if any critical function cannot be found,
+        // preventing a partially hooked state.
         for (auto& entry : hook_array)
         {
-            *entry.func_ptr = libUser32.GetSymbol<void*>(entry.func_name);
-            if (entry.func_ptr == nullptr)
+            void* symbol = libUser32.GetSymbol<void*>(entry.func_name);
+            HOOK_DEBUG_LOG_SYMBOL(entry.func_name, symbol, LibraryName.c_str());
+            
+            if (symbol == nullptr)
             {
                 INGAMEOVERLAY_ERROR("Failed to hook Windows: failed to load function {}.", entry.func_name);
                 return false;
             }
+            *entry.func_ptr = symbol;
         }
 
-        _StartWGIHook();
-
-        INGAMEOVERLAY_INFO("Hooked Windows");
+        // All symbols resolved successfully, now safe to proceed with hooking
+        INGAMEOVERLAY_INFO("All Windows symbols resolved, proceeding with hooks");
+        HOOK_DEBUG_LOG_THREAD("All symbols resolved - proceeding with hook installation");
+        
         _KeyCombinationCallback = std::move(keyCombinationCallback);
 
         for (int i = 0; i < toggleKeysCount; ++i)
@@ -142,12 +223,25 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
                 _NativeKeyCombination.emplace_back(k);
         }
 
+        // Begin a hook transaction - all hooks will be queued and applied together
+        // in EndHook() using MH_ApplyQueued() for thread safety
+        HOOK_DEBUG_LOG_THREAD("Beginning hook transaction");
         BeginHook();
 
         for (auto& entry : hook_array)
         {
             if (entry.hook_ptr != nullptr)
             {
+                // Validate that the symbol was actually resolved before hooking
+                if (*entry.func_ptr == nullptr)
+                {
+                    INGAMEOVERLAY_ERROR("Failed to hook {}: symbol not resolved", entry.func_name);
+                    HOOK_DEBUG_LOG_OP("SKIP-NULL", nullptr, entry.hook_ptr, nullptr, entry.func_name);
+                    continue;
+                }
+                
+                HOOK_DEBUG_LOG_OP("ATTEMPT", *entry.func_ptr, entry.hook_ptr, nullptr, entry.func_name);
+                
                 if (!HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr)))
                 {
                     INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
@@ -155,11 +249,20 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
             }
         }
 
+        // Apply all queued hooks atomically
+        HOOK_DEBUG_LOG_THREAD("Ending hook transaction - applying all queued hooks");
         EndHook();
+        
+        // Start WGI hooks after main hooks are applied to avoid race conditions
+        HOOK_DEBUG_LOG_THREAD("Starting Windows Gaming Input hooks");
+        _StartWGIHook();
 
+        // Now that hooks are applied, it's safe to call hooked functions
         _GetClipCursor(&_SavedClipCursor);
         _GetCursorPos(&_SavedCursorPos);
 
+        INGAMEOVERLAY_INFO("Hooked Windows successfully");
+        HOOK_DEBUG_LOG_THREAD("Windows hook initialization complete");
         _Hooked = true;
     }
     return true;
@@ -404,6 +507,11 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetRawInputBuffer == nullptr)
+        return 0;
+    
     int res = inst->_GetRawInputBuffer(pData, pcbSize, cbSizeHeader);
     if (!inst->_Initialized)
         return res;
@@ -423,6 +531,11 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, 
 UINT WINAPI WindowsHook_t::_MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetRawInputData == nullptr)
+        return (UINT)-1;
+    
     auto res = inst->_GetRawInputData(hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
     if (!inst->_Initialized || pData == nullptr)
         return res;
@@ -442,6 +555,10 @@ SHORT WINAPI WindowsHook_t::_MyGetKeyState(int nVirtKey)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetKeyState == nullptr)
+        return 0;
+
     if (inst->_Initialized && inst->_ApplicationInputsHidden)
         return 0;
 
@@ -451,6 +568,10 @@ SHORT WINAPI WindowsHook_t::_MyGetKeyState(int nVirtKey)
 SHORT WINAPI WindowsHook_t::_MyGetAsyncKeyState(int vKey)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetAsyncKeyState == nullptr)
+        return 0;
 
     if (inst->_Initialized && inst->_ApplicationInputsHidden)
         return 0;
@@ -462,6 +583,10 @@ BOOL WINAPI WindowsHook_t::_MyGetKeyboardState(PBYTE lpKeyState)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetKeyboardState == nullptr)
+        return FALSE;
+
     if (inst->_Initialized && inst->_ApplicationInputsHidden)
         return FALSE;
 
@@ -471,6 +596,10 @@ BOOL WINAPI WindowsHook_t::_MyGetKeyboardState(PBYTE lpKeyState)
 BOOL  WINAPI WindowsHook_t::_MyGetCursorPos(LPPOINT lpPoint)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetCursorPos == nullptr)
+        return FALSE;
     
     BOOL res = inst->_GetCursorPos(lpPoint);
     if (inst->_Initialized && inst->_ApplicationInputsHidden && lpPoint != nullptr)
@@ -485,6 +614,10 @@ BOOL WINAPI WindowsHook_t::_MySetCursorPos(int X, int Y)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_SetCursorPos == nullptr)
+        return FALSE;
+
     if (!inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->_SetCursorPos(X, Y);
 
@@ -494,6 +627,11 @@ BOOL WINAPI WindowsHook_t::_MySetCursorPos(int X, int Y)
 BOOL WINAPI WindowsHook_t::_MyGetClipCursor(RECT* lpRect)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetClipCursor == nullptr)
+        return FALSE;
+    
     if (lpRect == nullptr || !inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->_GetClipCursor(lpRect);
 
@@ -504,6 +642,11 @@ BOOL WINAPI WindowsHook_t::_MyGetClipCursor(RECT* lpRect)
 BOOL WINAPI WindowsHook_t::_MyClipCursor(CONST RECT* lpRect)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_ClipCursor == nullptr)
+        return FALSE;
+    
     CONST RECT* v = lpRect == nullptr ? &inst->_DefaultClipCursor : lpRect;
 
     inst->_SavedClipCursor = *v;
@@ -517,6 +660,11 @@ BOOL WINAPI WindowsHook_t::_MyClipCursor(CONST RECT* lpRect)
 BOOL WINAPI WindowsHook_t::_MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetMessageA == nullptr)
+        return FALSE;
+    
     // Force filters to 0 ?
     wMsgFilterMin = 0;
     wMsgFilterMax = 0;
@@ -538,6 +686,11 @@ BOOL WINAPI WindowsHook_t::_MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilte
 BOOL WINAPI WindowsHook_t::_MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GetMessageW == nullptr)
+        return FALSE;
+    
     // Force filters to 0 ?
     wMsgFilterMin = 0;
     wMsgFilterMax = 0;
@@ -559,6 +712,11 @@ BOOL WINAPI WindowsHook_t::_MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilte
 BOOL WINAPI WindowsHook_t::_MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_PeekMessageA == nullptr)
+        return FALSE;
+    
     // Force filters to 0 ?
     wMsgFilterMin = 0;
     wMsgFilterMax = 0;
@@ -586,6 +744,11 @@ BOOL WINAPI WindowsHook_t::_MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilt
 BOOL WINAPI WindowsHook_t::_MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+    
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_PeekMessageW == nullptr)
+        return FALSE;
+    
     // Force filters to 0 ?
     wMsgFilterMin = 0;
     wMsgFilterMax = 0;
@@ -668,14 +831,28 @@ void WindowsHook_t::_StartWGIHook()
 
 void WindowsHook_t::_StartRawControllerHook(SimpleWindowsGamingInput::IRawGameController* pRawController)
 {
-    void** vtable = *(void***)pRawController;
-    *(void**)&_RawControllerGetCurrentReading = vtable[(int)IRawGameControllerVTable::GetCurrentReading];
+    // Validate the controller pointer before accessing its vtable
+    if (pRawController == nullptr)
+    {
+        INGAMEOVERLAY_WARN("Failed to hook RawController: null controller pointer");
+        return;
+    }
+
+    // Use SEH-safe helper to extract the vtable function pointer
+    void* targetFunc = nullptr;
+    if (!SafeGetVTableEntry(pRawController, (int)IRawGameControllerVTable::GetCurrentReading, &targetFunc))
+    {
+        INGAMEOVERLAY_WARN("Failed to hook RawController: could not get GetCurrentReading from vtable");
+        return;
+    }
+    
+    *(void**)&_RawControllerGetCurrentReading = targetFunc;
 
     BeginHook();
 
     if (!HookFunc(std::make_pair((void**)&_RawControllerGetCurrentReading, (void*)&WindowsHook_t::_MyRawControllerGetCurrentReading)))
     {
-        INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+        INGAMEOVERLAY_ERROR("Failed to hook RawController::GetCurrentReading");
     }
 
     EndHook();
@@ -683,14 +860,28 @@ void WindowsHook_t::_StartRawControllerHook(SimpleWindowsGamingInput::IRawGameCo
 
 void WindowsHook_t::_StartGamepadHook(SimpleWindowsGamingInput::IGamepad* pGamepad)
 {
-    void** vtable = *(void***)pGamepad;
-    *(void**)&_GamepadGetCurrentReading = vtable[(int)IGamepadVTable::GetCurrentReading];
+    // Validate the gamepad pointer before accessing its vtable
+    if (pGamepad == nullptr)
+    {
+        INGAMEOVERLAY_WARN("Failed to hook Gamepad: null gamepad pointer");
+        return;
+    }
+
+    // Use SEH-safe helper to extract the vtable function pointer
+    void* targetFunc = nullptr;
+    if (!SafeGetVTableEntry(pGamepad, (int)IGamepadVTable::GetCurrentReading, &targetFunc))
+    {
+        INGAMEOVERLAY_WARN("Failed to hook Gamepad: could not get GetCurrentReading from vtable");
+        return;
+    }
+    
+    *(void**)&_GamepadGetCurrentReading = targetFunc;
 
     BeginHook();
 
     if (!HookFunc(std::make_pair((void**)&_GamepadGetCurrentReading, (void*)&WindowsHook_t::_MyGamepadGetCurrentReading)))
     {
-        INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+        INGAMEOVERLAY_ERROR("Failed to hook Gamepad::GetCurrentReading");
     }
 
     EndHook();
@@ -699,6 +890,10 @@ void WindowsHook_t::_StartGamepadHook(SimpleWindowsGamingInput::IGamepad* pGamep
 HRESULT STDMETHODCALLTYPE WindowsHook_t::_MyRawControllerGetCurrentReading(SimpleWindowsGamingInput::IRawGameController* _this, UINT32 buttonArrayLength, boolean* buttonArray, UINT32 switchArrayLength, SimpleWindowsGamingInput::GameControllerSwitchPosition* switchArray, UINT32 axisArrayLength, DOUBLE* axisArray, UINT64* timestamp)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_RawControllerGetCurrentReading == nullptr)
+        return E_FAIL;
 
     auto result = (_this->*inst->_RawControllerGetCurrentReading)(buttonArrayLength, buttonArray, switchArrayLength, switchArray, axisArrayLength, axisArray, timestamp);
 
@@ -723,6 +918,10 @@ HRESULT STDMETHODCALLTYPE WindowsHook_t::_MyRawControllerGetCurrentReading(Simpl
 HRESULT STDMETHODCALLTYPE WindowsHook_t::_MyGamepadGetCurrentReading(SimpleWindowsGamingInput::IGamepad* _this, SimpleWindowsGamingInput::GamepadReading* value)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
+
+    // Safety check: ensure the original function pointer is valid
+    if (inst->_GamepadGetCurrentReading == nullptr)
+        return E_FAIL;
 
     auto result = (_this->*inst->_GamepadGetCurrentReading)(value);
 

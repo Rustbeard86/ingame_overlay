@@ -21,9 +21,17 @@
 
 #include <vector>
 #include <utility>
+#include <mutex>
 #include <MinHook.h>
 
 namespace InGameOverlay {
+
+// Structure to track VTable hooks for safe reversion
+struct VTableHookInfo_t
+{
+    void** VTableEntry;  // Pointer to the VTable entry
+    void* OriginalFunc;  // Original function pointer
+};
 
 class BaseHook_t
 {
@@ -34,7 +42,7 @@ public:
     void BeginHook();
     void EndHook();
 
-    // Standard inline hook
+    // Standard inline hook - uses queued enabling for thread safety
     bool HookFunc(std::pair<void**, void*> hook);
 
     // New: VTable swap hook for better stability with translation layers like DXVK
@@ -45,6 +53,18 @@ public:
 protected:
     // MinHook manages hooks via target addresses, so we store the targets here
     std::vector<void*> _HookedFunctions;
+    
+    // Track VTable hooks for safe reversion
+    std::vector<VTableHookInfo_t> _VTableHooks;
+    
+    // Track pending queued hooks for batch enabling
+    std::vector<void*> _PendingHooks;
+    
+    // Mutex for thread-safe hook operations
+    std::recursive_mutex _HookMutex;
+    
+    // Flag to indicate if we're in a BeginHook/EndHook transaction
+    bool _InHookTransaction;
 
     BaseHook_t(const BaseHook_t&) = delete;
     BaseHook_t(BaseHook_t&&) = delete;

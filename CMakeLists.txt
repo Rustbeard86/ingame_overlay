@@ -3,6 +3,9 @@ cmake_policy(SET CMP0048 NEW)
 cmake_policy(SET CMP0091 NEW)
 project(ingame_overlay)
 
+# Option to enable hook debugging (stack traces, detailed logging)
+option(INGAMEOVERLAY_HOOK_DEBUG "Enable detailed hook debugging with stack traces (debug builds only)" OFF)
+
 if(WIN32) # Setup some variables for Windows build
   set(INGAMEOVERLAY_SOURCES
     src/Windows/SimpleWindowsGamingInput.cpp
@@ -14,10 +17,12 @@ if(WIN32) # Setup some variables for Windows build
     src/Windows/OpenGLHook.cpp
     src/Windows/VulkanHook.cpp
     src/Windows/WindowsHook.cpp
+    src/HookDebug.cpp
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/VulkanHelpers.h
+    src/HookDebug.h
     src/Windows/DirectXVTables.h
     src/Windows/SimpleWindowsGamingInput.h
     src/Windows/WindowsGamingInputVTables.h
@@ -261,6 +266,7 @@ target_compile_definitions(ingame_overlay
   PRIVATE
   IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS
   $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:INGAMEOVERLAY_USE_SPDLOG>
+  $<$<BOOL:${INGAMEOVERLAY_HOOK_DEBUG}>:INGAMEOVERLAY_HOOK_DEBUG>
   $<BUILD_INTERFACE:${IMGUI_USER_CONFIG_VALUE}>
   $<BUILD_INTERFACE:IMGUI_DISABLE_DEMO_WINDOWS>
   PUBLIC
