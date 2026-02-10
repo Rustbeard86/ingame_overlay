@@ -111,7 +111,8 @@ jobs:
           Write-Host "✓ Copied headers"
           
           # List what we're releasing
-          Write-Host "`nRelease artifacts prepared:"
+          Write-Host ""
+          Write-Host "Release artifacts prepared:"
           Get-ChildItem -Recurse release
       
       - name: Create ZIP archives
