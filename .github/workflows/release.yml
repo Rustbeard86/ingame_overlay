@@ -15,6 +15,8 @@ jobs:
   build-and-release:
     name: Build and Release ingame_overlay
     runs-on: windows-latest
+    permissions:
+      contents: write  # Required to create releases and upload artifacts
     
     steps:
       - name: Checkout repository
