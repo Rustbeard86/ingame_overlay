@@ -61,24 +61,55 @@ jobs:
           New-Item -ItemType Directory -Path "release/include" -Force
           
           # Copy x64 artifacts (only .lib files)
-          Copy-Item "build_x64/Release/ingame_overlay.lib" "release/x64/" -ErrorAction SilentlyContinue
+          if (Test-Path "build_x64/Release/ingame_overlay.lib") {
+            Copy-Item "build_x64/Release/ingame_overlay.lib" "release/x64/"
+            Write-Host "✓ Copied x64 library"
+          } else {
+            Write-Error "x64 library not found!"
+            exit 1
+          }
           
           # Copy x86 artifacts (only .lib files)
-          Copy-Item "build_x86/Release/ingame_overlay.lib" "release/x86/" -ErrorAction SilentlyContinue
+          if (Test-Path "build_x86/Release/ingame_overlay.lib") {
+            Copy-Item "build_x86/Release/ingame_overlay.lib" "release/x86/"
+            Write-Host "✓ Copied x86 library"
+          } else {
+            Write-Error "x86 library not found!"
+            exit 1
+          }
           
           # Copy x64 hook debug artifacts (.lib and .pdb)
-          Copy-Item "build_x64_hookdebug/Release/ingame_overlay.lib" "release/x64_hookdebug/" -ErrorAction SilentlyContinue
-          Copy-Item "build_x64_hookdebug/Release/ingame_overlay.pdb" "release/x64_hookdebug/" -ErrorAction SilentlyContinue
+          if (Test-Path "build_x64_hookdebug/Release/ingame_overlay.lib") {
+            Copy-Item "build_x64_hookdebug/Release/ingame_overlay.lib" "release/x64_hookdebug/"
+            Write-Host "✓ Copied x64 hook debug library"
+          } else {
+            Write-Error "x64 hook debug library not found!"
+            exit 1
+          }
+          if (Test-Path "build_x64_hookdebug/Release/ingame_overlay.pdb") {
+            Copy-Item "build_x64_hookdebug/Release/ingame_overlay.pdb" "release/x64_hookdebug/"
+            Write-Host "✓ Copied x64 hook debug PDB"
+          }
           
           # Copy x86 hook debug artifacts (.lib and .pdb)
-          Copy-Item "build_x86_hookdebug/Release/ingame_overlay.lib" "release/x86_hookdebug/" -ErrorAction SilentlyContinue
-          Copy-Item "build_x86_hookdebug/Release/ingame_overlay.pdb" "release/x86_hookdebug/" -ErrorAction SilentlyContinue
+          if (Test-Path "build_x86_hookdebug/Release/ingame_overlay.lib") {
+            Copy-Item "build_x86_hookdebug/Release/ingame_overlay.lib" "release/x86_hookdebug/"
+            Write-Host "✓ Copied x86 hook debug library"
+          } else {
+            Write-Error "x86 hook debug library not found!"
+            exit 1
+          }
+          if (Test-Path "build_x86_hookdebug/Release/ingame_overlay.pdb") {
+            Copy-Item "build_x86_hookdebug/Release/ingame_overlay.pdb" "release/x86_hookdebug/"
+            Write-Host "✓ Copied x86 hook debug PDB"
+          }
           
           # Copy public headers
           Copy-Item "include/InGameOverlay/*" "release/include/" -Recurse -Force
+          Write-Host "✓ Copied headers"
           
           # List what we're releasing
-          Write-Host "Release artifacts prepared:"
+          Write-Host "`nRelease artifacts prepared:"
           Get-ChildItem -Recurse release
       
       - name: Create ZIP archives
