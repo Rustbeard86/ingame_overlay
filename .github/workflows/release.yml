@@ -1,0 +1,188 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags like v1.0.0, v2.1.3, etc.
+  workflow_dispatch:  # Allow manual trigger for testing
+    inputs:
+      tag_name:
+        description: 'Tag name for release (e.g., v1.0.0)'
+        required: true
+        default: 'v0.0.0-test'
+
+jobs:
+  build-and-release:
+    name: Build and Release ingame_overlay
+    runs-on: windows-latest
+    permissions:
+      contents: write  # Required to create releases and upload artifacts
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+      
+      - name: Build x64 Release
+        shell: powershell
+        run: |
+          cmake -B build_x64 -A x64 -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_x64 --config Release -v
+      
+      - name: Build x86 Release
+        shell: powershell
+        run: |
+          cmake -B build_x86 -A Win32 -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_x86 --config Release -v
+      
+      - name: Build x64 Release with Hook Debug
+        shell: powershell
+        run: |
+          cmake -B build_x64_hookdebug -A x64 -DCMAKE_BUILD_TYPE=Release -DINGAMEOVERLAY_HOOK_DEBUG=ON
+          cmake --build build_x64_hookdebug --config Release -v
+      
+      - name: Build x86 Release with Hook Debug
+        shell: powershell
+        run: |
+          cmake -B build_x86_hookdebug -A Win32 -DCMAKE_BUILD_TYPE=Release -DINGAMEOVERLAY_HOOK_DEBUG=ON
+          cmake --build build_x86_hookdebug --config Release -v
+      
+      - name: Prepare Release Artifacts
+        shell: powershell
+        run: |
+          # Create release directory structure
+          New-Item -ItemType Directory -Path "release/x64" -Force
+          New-Item -ItemType Directory -Path "release/x86" -Force
+          New-Item -ItemType Directory -Path "release/x64_hookdebug" -Force
+          New-Item -ItemType Directory -Path "release/x86_hookdebug" -Force
+          New-Item -ItemType Directory -Path "release/include" -Force
+          
+          # Copy x64 artifacts (only .lib files)
+          if (Test-Path "build_x64/Release/ingame_overlay.lib") {
+            Copy-Item "build_x64/Release/ingame_overlay.lib" "release/x64/"
+            Write-Host "✓ Copied x64 library"
+          } else {
+            Write-Error "x64 library not found!"
+            exit 1
+          }
+          
+          # Copy x86 artifacts (only .lib files)
+          if (Test-Path "build_x86/Release/ingame_overlay.lib") {
+            Copy-Item "build_x86/Release/ingame_overlay.lib" "release/x86/"
+            Write-Host "✓ Copied x86 library"
+          } else {
+            Write-Error "x86 library not found!"
+            exit 1
+          }
+          
+          # Copy x64 hook debug artifacts (.lib and .pdb)
+          if (Test-Path "build_x64_hookdebug/Release/ingame_overlay.lib") {
+            Copy-Item "build_x64_hookdebug/Release/ingame_overlay.lib" "release/x64_hookdebug/"
+            Write-Host "✓ Copied x64 hook debug library"
+          } else {
+            Write-Error "x64 hook debug library not found!"
+            exit 1
+          }
+          if (Test-Path "build_x64_hookdebug/Release/ingame_overlay.pdb") {
+            Copy-Item "build_x64_hookdebug/Release/ingame_overlay.pdb" "release/x64_hookdebug/"
+            Write-Host "✓ Copied x64 hook debug PDB"
+          }
+          
+          # Copy x86 hook debug artifacts (.lib and .pdb)
+          if (Test-Path "build_x86_hookdebug/Release/ingame_overlay.lib") {
+            Copy-Item "build_x86_hookdebug/Release/ingame_overlay.lib" "release/x86_hookdebug/"
+            Write-Host "✓ Copied x86 hook debug library"
+          } else {
+            Write-Error "x86 hook debug library not found!"
+            exit 1
+          }
+          if (Test-Path "build_x86_hookdebug/Release/ingame_overlay.pdb") {
+            Copy-Item "build_x86_hookdebug/Release/ingame_overlay.pdb" "release/x86_hookdebug/"
+            Write-Host "✓ Copied x86 hook debug PDB"
+          }
+          
+          # Copy public headers
+          Copy-Item "include/InGameOverlay/*" "release/include/" -Recurse -Force
+          Write-Host "✓ Copied headers"
+          
+          # List what we're releasing
+          Write-Host "`nRelease artifacts prepared:"
+          Get-ChildItem -Recurse release
+      
+      - name: Create ZIP archives
+        shell: powershell
+        run: |
+          # Create individual archives
+          Compress-Archive -Path "release/x64/*" -DestinationPath "ingame_overlay_x64.zip"
+          Compress-Archive -Path "release/x86/*" -DestinationPath "ingame_overlay_x86.zip"
+          Compress-Archive -Path "release/x64_hookdebug/*" -DestinationPath "ingame_overlay_x64_hookdebug.zip"
+          Compress-Archive -Path "release/x86_hookdebug/*" -DestinationPath "ingame_overlay_x86_hookdebug.zip"
+          Compress-Archive -Path "release/include/*" -DestinationPath "ingame_overlay_headers.zip"
+          
+          # Create combined archive
+          Compress-Archive -Path "release/*" -DestinationPath "ingame_overlay_complete.zip"
+      
+      - name: Determine tag name
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag_name=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          name: Release ${{ steps.tag.outputs.tag_name }}
+          draft: false
+          prerelease: false
+          body: |
+            ## InGame Overlay Release ${{ steps.tag.outputs.tag_name }}
+            
+            This release includes the compiled ingame_overlay static library for Windows.
+            
+            ### Contents:
+            - `ingame_overlay_complete.zip` - Complete package with all builds (x64, x86, regular and hook debug) and headers
+            - `ingame_overlay_x64.zip` - x64 static library (.lib)
+            - `ingame_overlay_x86.zip` - x86 static library (.lib)
+            - `ingame_overlay_x64_hookdebug.zip` - x64 library with hook debugging enabled (.lib and .pdb)
+            - `ingame_overlay_x86_hookdebug.zip` - x86 library with hook debugging enabled (.lib and .pdb)
+            - `ingame_overlay_headers.zip` - Public header files
+            
+            ### Files included:
+            - `ingame_overlay.lib` - Static library for linking
+            - `ingame_overlay.pdb` - Debug symbols (hook debug builds only)
+            - Public headers in the `include` directory
+            
+            ### Hook Debug Builds:
+            The hook debug builds (`*_hookdebug.zip`) include detailed logging and stack traces for diagnosing hooking issues.
+            These builds output debug information to the debugger output window and can be viewed using:
+            - **DebugView** (https://learn.microsoft.com/en-us/sysinternals/downloads/debugview)
+            - Visual Studio debugger output window
+            
+            Use the hook debug builds when you need to troubleshoot hooking problems or crashes during hook installation.
+            
+            ### Usage:
+            1. Download the appropriate architecture package (x64 or x86)
+            2. For troubleshooting, use the hook debug version; otherwise use the regular version
+            3. Link against `ingame_overlay.lib` in your project
+            4. Include the provided headers in your project
+            
+            For more information, see the [README](https://github.com/${{ github.repository }}/blob/main/README.md).
+          files: |
+            ingame_overlay_complete.zip
+            ingame_overlay_x64.zip
+            ingame_overlay_x86.zip
+            ingame_overlay_x64_hookdebug.zip
+            ingame_overlay_x86_hookdebug.zip
+            ingame_overlay_headers.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
